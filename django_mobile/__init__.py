@@ -7,20 +7,23 @@ _local = threading.local()
 
 
 def get_flavour(request=None, default=None):
-    flavour = None
     request = request or getattr(_local, 'request', None)
+
+    # attempt to get the flavour from the request
+    flavour = getattr(request, 'flavour', None)
+
     # get flavour from session if enabled
-    if request and settings.FLAVOURS_SESSION_KEY:
+    if not flavour and request and settings.FLAVOURS_SESSION_KEY:
         flavour = request.session.get(settings.FLAVOURS_SESSION_KEY, None)
-    # check if flavour is set on request
-    if not flavour and hasattr(request, 'flavour'):
-        flavour = request.flavour
+
     # if set out of a request-response cycle its stored on the thread local
     if not flavour:
         flavour = getattr(_local, 'flavour', default)
+
     # if something went wrong we return the very default flavour
     if flavour not in settings.FLAVOURS:
         flavour = settings.FLAVOURS[0]
+
     return flavour
 
 
