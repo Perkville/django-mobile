@@ -1,16 +1,21 @@
 import re
-from django_mobile import set_flavour, get_flavour, _set_request
+from django_mobile import flavour_storage
+from django_mobile import set_flavour, _init_flavour
 from django_mobile.conf import settings
 
 
 class SetFlavourMiddleware(object):
     def process_request(self, request):
-        _set_request(request)
+        _init_flavour(request)
 
         if settings.FLAVOURS_GET_PARAMETER in request.GET:
             flavour = request.GET[settings.FLAVOURS_GET_PARAMETER]
             if flavour in settings.FLAVOURS:
-                set_flavour(flavour, permanent=True)
+                set_flavour(flavour, request, permanent=True)
+
+    def process_response(self, request, response):
+        flavour_storage.save(request, response)
+        return response
 
 
 class MobileDetectionMiddleware(object):
@@ -30,8 +35,14 @@ class MobileDetectionMiddleware(object):
         "upg1", "upsi", "vk-v", "voda", "wap-", "wapa",
         "wapi", "wapp", "wapr", "webc", "winw", "winw",
         "xda-",)
-    user_agents_test_search = "(?:up.browser|up.link|mmp|symbian|smartphone|midp|wap|phone|windows ce|pda|mobile|mini|palm|netfront)"
-    user_agents_exception_search = "(?:ipad)"
+    user_agents_test_search = u"(?:%s)" % u'|'.join((
+        'up.browser', 'up.link', 'mmp', 'symbian', 'smartphone', 'midp',
+        'wap', 'phone', 'windows ce', 'pda', 'mobile', 'mini', 'palm',
+        'netfront', 'opera mobi',
+    ))
+    user_agents_exception_search = u"(?:%s)" % u'|'.join((
+        'ipad',
+    ))
     http_accept_regex = re.compile("application/vnd\.wap\.xhtml\+xml", re.IGNORECASE)
 
     def __init__(self):
@@ -47,7 +58,8 @@ class MobileDetectionMiddleware(object):
             user_agent = request.META['HTTP_USER_AGENT']
 
             # Test common mobile values.
-            if self.user_agents_test_search_regex.search(user_agent) and not self.user_agents_exception_search_regex.search(user_agent):
+            if self.user_agents_test_search_regex.search(user_agent) and \
+                not self.user_agents_exception_search_regex.search(user_agent):
                 is_mobile = True
             else:
                 # Nokia like test for WAP browsers.
@@ -64,6 +76,6 @@ class MobileDetectionMiddleware(object):
                     is_mobile = True
 
         if is_mobile:
-            set_flavour(settings.DEFAULT_MOBILE_FLAVOUR)
+            set_flavour(settings.DEFAULT_MOBILE_FLAVOUR, request)
         else:
-            set_flavour(settings.FLAVOURS[0])
+            set_flavour(settings.FLAVOURS[0], request)

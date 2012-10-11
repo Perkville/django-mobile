@@ -1,9 +1,72 @@
 import threading
 from django.core.exceptions import ImproperlyConfigured
+from django.utils.encoding import smart_str
 from django_mobile.conf import settings
 
 
 _local = threading.local()
+
+
+class SessionBackend(object):
+    def get(self, request, default=None):
+        return request.session.get(settings.FLAVOURS_SESSION_KEY, default)
+
+    def set(self, request, flavour):
+        request.session[settings.FLAVOURS_SESSION_KEY] = flavour
+
+    def save(self, request, response):
+        pass
+
+
+class CookieBackend(object):
+    def get(self, request, default=None):
+        return request.COOKIES.get(settings.FLAVOURS_COOKIE_KEY, default)
+
+    def set(self, request, flavour):
+        request.COOKIES[settings.FLAVOURS_COOKIE_KEY] = flavour
+        request._flavour_cookie = flavour
+
+    def save(self, request, response):
+        if hasattr(request, '_flavour_cookie'):
+            response.set_cookie(
+                smart_str(settings.FLAVOURS_COOKIE_KEY),
+                smart_str(request._flavour_cookie),
+                httponly=settings.FLAVOURS_COOKIE_HTTPONLY)
+
+
+# hijack this dict to add your own backend
+FLAVOUR_STORAGE_BACKENDS = {
+    'cookie': CookieBackend(),
+    'session': SessionBackend(),
+}
+
+
+class ProxyBackend(object):
+    def get_backend(self):
+        backend = settings.FLAVOURS_STORAGE_BACKEND
+        if not settings.FLAVOURS_STORAGE_BACKEND:
+            raise ImproperlyConfigured(
+                u"You must specify a FLAVOURS_STORAGE_BACKEND setting to "
+                u"save the flavour for a user.")
+        return FLAVOUR_STORAGE_BACKENDS[backend]
+
+    def get(self, *args, **kwargs):
+        if settings.FLAVOURS_STORAGE_BACKEND is None:
+            return None
+        return self.get_backend().get(*args, **kwargs)
+
+    def set(self, *args, **kwargs):
+        if settings.FLAVOURS_STORAGE_BACKEND is None:
+            return None
+        return self.get_backend().set(*args, **kwargs)
+
+    def save(self, *args, **kwargs):
+        if settings.FLAVOURS_STORAGE_BACKEND is None:
+            return None
+        return self.get_backend().save(*args, **kwargs)
+
+
+flavour_storage = ProxyBackend()
 
 
 def get_flavour(request=None, default=None):
@@ -12,9 +75,9 @@ def get_flavour(request=None, default=None):
     # attempt to get the flavour from the request
     flavour = getattr(request, 'flavour', None)
 
-    # get flavour from session if enabled
-    if not flavour and request and settings.FLAVOURS_SESSION_KEY:
-        flavour = request.session.get(settings.FLAVOURS_SESSION_KEY, None)
+    # get flavour from storage if enabled
+    if not flavour and request:
+        flavour = flavour_storage.get(request)
 
     # if set out of a request-response cycle its stored on the thread local
     if not flavour:
@@ -37,16 +100,22 @@ def set_flavour(flavour, request=None, permanent=False):
     if request:
         request.flavour = flavour
         if permanent:
-            if not settings.FLAVOURS_SESSION_KEY:
-                raise ImproperlyConfigured(
-                    u"You must specify the FLAVOURS_SESSION_KEY setting to "
-                    u"use the 'permanent' parameter.")
-            request.session[settings.FLAVOURS_SESSION_KEY] = flavour
+            flavour_storage.set(request, flavour)
     elif permanent:
         raise ValueError(
             u'Cannot set flavour permanently, no request available.')
     _local.flavour = flavour
 
 
-def _set_request(request):
+def _set_request_header(request, flavour):
+    request.META['HTTP_X_FLAVOUR'] = flavour
+
+
+def _init_flavour(request):
+    global _local
+    _local = threading.local()
     _local.request = request
+    if hasattr(request, 'flavour'):
+        _local.flavour = request.flavour
+    if not hasattr(_local, 'flavour'):
+        _local.flavour = settings.FLAVOURS[0]

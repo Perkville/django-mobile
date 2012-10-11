@@ -24,15 +24,17 @@ class UltraMagicString(object):
         return self.value.split(*args, **kw)
 
 
-long_description = UltraMagicString(u'\n\n'.join((
-    file('README.rst').read(),
-    file('CHANGES.rst').read(),
-)))
+long_description = u'\n\n'.join((
+    file('README.rst', 'r').read().decode('utf-8'),
+    file('CHANGES.rst', 'r').read().decode('utf-8'),
+))
+long_description = long_description.encode('utf-8')
+long_description = UltraMagicString(long_description)
 
 
 setup(
     name = 'django-mobile',
-    version = '0.1.2',
+    version = '0.2.4',
     url = 'https://github.com/gregmuellegger/django-mobile',
     license = 'BSD',
     description = u'Detect mobile browsers and serve different template flavours to them.',
@@ -51,9 +53,9 @@ setup(
     ],
     packages = [
         'django_mobile',
+        'django_mobile.cache',
     ],
     install_requires = ['setuptools'],
-    tests_require = ['mock'],
-    test_suite = 'runtests.runtests',
+    tests_require = ['Django', 'mock'],
+    test_suite = 'django_mobile_tests.runtests.runtests',
 )
-
